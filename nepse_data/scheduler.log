@@ -1,0 +1,92 @@
+[2026-03-25 14:46:46]  Created CSV → C:\Codes\final_etl\nepse_data\live_feed.csv
+[2026-03-25 14:46:46]  ============================================================
+[2026-03-25 14:46:46]  Scheduler started  |  watchlist: NABIL, ADBL, NTC, SCB, NICA
+[2026-03-25 14:46:46]  ============================================================
+[2026-03-25 14:46:46]  Poll #1  |  fetching 5 symbols …
+[2026-03-25 14:46:47]    NABIL       close=540.5  pct=-0.75%  vol=105,247
+[2026-03-25 14:46:47]    ADBL        close=332.0  pct=-0.87%  vol=84,496
+[2026-03-25 14:46:47]    NTC         close=900.4  pct=-1.49%  vol=11,403
+[2026-03-25 14:46:47]    SCB         close=676.2  pct=-0.56%  vol=23,563
+[2026-03-25 14:46:47]    NICA        close=397.0  pct=0.76%  vol=447,479
+[2026-03-25 14:46:47]    → 5 rows appended to C:\Codes\final_etl\nepse_data\live_feed.csv
+[2026-03-25 14:46:47]    Next poll in 4m 19s
+[2026-03-25 14:51:06]  Poll #2  |  fetching 5 symbols …
+[2026-03-25 14:51:07]    NABIL       close=539.0  pct=-1.03%  vol=111,647
+[2026-03-25 14:51:07]    ADBL        close=330.5  pct=-1.31%  vol=87,062
+[2026-03-25 14:51:07]    NTC         close=901.0  pct=-1.42%  vol=12,713
+[2026-03-25 14:51:07]    SCB         close=676.0  pct=-0.59%  vol=24,790
+[2026-03-25 14:51:07]    NICA        close=395.4  pct=0.36%  vol=455,233
+[2026-03-25 14:51:07]    → 5 rows appended to C:\Codes\final_etl\nepse_data\live_feed.csv
+[2026-03-25 14:51:07]    Next poll in 3m 35s
+[2026-03-25 14:54:42]  Poll #3  |  fetching 5 symbols …
+[2026-03-25 14:54:43]    NABIL       close=540.0  pct=-0.84%  vol=115,030
+[2026-03-25 14:54:43]    ADBL        close=330.0  pct=-1.46%  vol=103,025
+[2026-03-25 14:54:43]    NTC         close=900.0  pct=-1.53%  vol=15,333
+[2026-03-25 14:54:43]    SCB         close=676.0  pct=-0.59%  vol=24,896
+[2026-03-25 14:54:43]    NICA        close=398.9  pct=1.24%  vol=466,146
+[2026-03-25 14:54:43]    → 5 rows appended to C:\Codes\final_etl\nepse_data\live_feed.csv
+[2026-03-25 14:54:43]    Next poll in 4m 54s
+[2026-03-25 14:59:37]  Poll #4  |  fetching 5 symbols …
+[2026-03-25 14:59:38]    NABIL       close=540.0  pct=-0.84%  vol=121,279
+[2026-03-25 14:59:38]    ADBL        close=329.0  pct=-1.76%  vol=105,718
+[2026-03-25 14:59:38]    NTC         close=895.0  pct=-2.08%  vol=15,964
+[2026-03-25 14:59:38]    SCB         close=678.0  pct=-0.29%  vol=25,500
+[2026-03-25 14:59:38]    NICA        close=396.0  pct=0.51%  vol=494,105
+[2026-03-25 14:59:38]    → 5 rows appended to C:\Codes\final_etl\nepse_data\live_feed.csv
+[2026-03-25 14:59:38]    Next poll in 4m 40s
+[2026-03-25 15:00:00]    Market closed mid-sleep — stopping early.
+[2026-03-25 15:00:00]  Market closed. Scheduler done for today.
+[2026-03-25 15:00:00]  Scheduler exiting.
+[2026-03-25 15:40:16]  ============================================================
+[2026-03-25 15:40:16]  Report generator started
+[2026-03-25 15:40:16]  ============================================================
+[2026-03-25 15:40:16]  Loaded 20 rows for 5 symbol(s) — 2026-03-25
+[2026-03-25 15:40:17]    Chart saved → C:\Codes\final_etl\nepse_data\reports\charts\ADBL_chart.png
+[2026-03-25 15:40:17]    Chart saved → C:\Codes\final_etl\nepse_data\reports\charts\NABIL_chart.png
+[2026-03-25 15:40:17]    Chart saved → C:\Codes\final_etl\nepse_data\reports\charts\NICA_chart.png
+[2026-03-25 15:40:17]    Chart saved → C:\Codes\final_etl\nepse_data\reports\charts\NTC_chart.png
+[2026-03-25 15:40:17]    Chart saved → C:\Codes\final_etl\nepse_data\reports\charts\SCB_chart.png
+[2026-03-25 15:40:18]  PDF saved → C:\Codes\final_etl\nepse_data\reports\NEPSE_Report_2026-03-25.pdf
+[2026-03-25 15:40:21]    Toast stdout: TOAST_FAIL: An error occurred while enumerating through a collection: Collection was modified; enumeration operation may not execute..
+[2026-03-25 15:40:21]  Falling back to VBScript popup ...
+[2026-03-25 15:40:26]    VBScript stdout: 
+[2026-03-25 15:40:26]  Notification sent via VBScript popup.
+[2026-03-25 15:40:26]  PDF opened in default viewer.
+[2026-03-25 15:40:26]  Report generation complete.
+[2026-03-25 15:40:26]  ============================================================
+[2026-03-25 16:00:54]  ============================================================
+[2026-03-25 16:00:54]  Report generator started
+[2026-03-25 16:00:54]  ============================================================
+[2026-03-25 16:00:54]  Loaded 20 rows for 5 symbol(s) — 2026-03-25
+[2026-03-25 16:00:55]    Chart saved → C:\Codes\final_etl\nepse_data\reports\charts\ADBL_chart.png
+[2026-03-25 16:00:55]    Chart saved → C:\Codes\final_etl\nepse_data\reports\charts\NABIL_chart.png
+[2026-03-25 16:00:55]    Chart saved → C:\Codes\final_etl\nepse_data\reports\charts\NICA_chart.png
+[2026-03-25 16:00:55]    Chart saved → C:\Codes\final_etl\nepse_data\reports\charts\NTC_chart.png
+[2026-03-25 16:00:55]    Chart saved → C:\Codes\final_etl\nepse_data\reports\charts\SCB_chart.png
+[2026-03-25 16:00:55]  PDF saved → C:\Codes\final_etl\nepse_data\reports\NEPSE_Report_2026-03-25.pdf
+[2026-03-25 16:00:56]    Toast stdout: TOAST_FAIL: An error occurred while enumerating through a collection: Collection was modified; enumeration operation may not execute..
+[2026-03-25 16:00:56]  Falling back to VBScript popup ...
+[2026-03-25 16:01:27]    VBScript stdout: 
+[2026-03-25 16:01:27]  Notification sent via VBScript popup.
+[2026-03-25 16:01:27]  Could not open PDF automatically: [WinError -2147467231] The operation attempted is not supported: 'C:\\Codes\\final_etl\\nepse_data\\reports\\NEPSE_Report_2026-03-25.pdf'
+[2026-03-25 16:01:27]    → Open manually: C:\Codes\final_etl\nepse_data\reports\NEPSE_Report_2026-03-25.pdf
+[2026-03-25 16:01:27]  Report generation complete.
+[2026-03-25 16:01:27]  ============================================================
+[2026-03-25 16:02:02]  ============================================================
+[2026-03-25 16:02:02]  Report generator started
+[2026-03-25 16:02:02]  ============================================================
+[2026-03-25 16:02:02]  Loaded 20 rows for 5 symbol(s) — 2026-03-25
+[2026-03-25 16:02:02]    Chart saved → C:\Codes\final_etl\nepse_data\reports\charts\ADBL_chart.png
+[2026-03-25 16:02:03]    Chart saved → C:\Codes\final_etl\nepse_data\reports\charts\NABIL_chart.png
+[2026-03-25 16:02:03]    Chart saved → C:\Codes\final_etl\nepse_data\reports\charts\NICA_chart.png
+[2026-03-25 16:02:03]    Chart saved → C:\Codes\final_etl\nepse_data\reports\charts\NTC_chart.png
+[2026-03-25 16:02:03]    Chart saved → C:\Codes\final_etl\nepse_data\reports\charts\SCB_chart.png
+[2026-03-25 16:02:03]  PDF saved → C:\Codes\final_etl\nepse_data\reports\NEPSE_Report_2026-03-25.pdf
+[2026-03-25 16:02:04]    Toast stdout: TOAST_FAIL: An error occurred while enumerating through a collection: Collection was modified; enumeration operation may not execute..
+[2026-03-25 16:02:04]  Falling back to VBScript popup ...
+[2026-03-25 16:02:34]    VBScript stdout: 
+[2026-03-25 16:02:34]  Notification sent via VBScript popup.
+[2026-03-25 16:02:34]  Could not open PDF automatically: [WinError -2147467231] The operation attempted is not supported: 'C:\\Codes\\final_etl\\nepse_data\\reports\\NEPSE_Report_2026-03-25.pdf'
+[2026-03-25 16:02:34]    → Open manually: C:\Codes\final_etl\nepse_data\reports\NEPSE_Report_2026-03-25.pdf
+[2026-03-25 16:02:34]  Report generation complete.
+[2026-03-25 16:02:34]  ============================================================
