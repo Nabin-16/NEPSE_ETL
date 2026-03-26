@@ -1,14 +1,9 @@
 """
 NEPSE Background Scheduler
-===========================
-Runs silently in the background. Fetches watchlist data every 3-5 minutes
-during market hours (11:00-15:00 NPT, Sun-Thu) and appends all records
-to a single CSV file: nepse_data/live_feed.csv
-
 Setup (one-time):
     1. Edit WATCHLIST below with your symbols
     2. Run setup_task.bat as Administrator to register Windows Task Scheduler
-    3. That's it — it will auto-start every day at 10:50 AM NPT
+    3. It will auto-start every day at 10:50 AM NPT
 
 Manual run:
     python nepse_scheduler.py
@@ -34,7 +29,6 @@ MARKET_CLOSE = (15,  0)
 POLL_MIN     = 180   # 3 min
 POLL_MAX     = 300   # 5 min
 
-# CSV lives next to this script
 BASE_DIR  = r"C:\Codes\final_etl"
 DATA_DIR  = os.path.join(BASE_DIR, "nepse_data")
 CSV_PATH  = os.path.join(DATA_DIR, "live_feed.csv")
@@ -152,7 +146,6 @@ def fetch_ohlcv(symbol: str) -> dict | None:
         ts    = data["t"][idx]
         day   = datetime.fromtimestamp(ts, UTC).strftime("%Y-%m-%d")
 
-        # ── Only keep today's candle ──────────────────────────────────────────
         today = now_npt().strftime("%Y-%m-%d")
         if day != today:
             log(f"  {symbol:<10}  latest candle is {day}, not today ({today}) — skipping")
@@ -184,24 +177,20 @@ def fetch_nepse_pct() -> float | None:
     return None
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Main scheduler loop
-# ─────────────────────────────────────────────────────────────────────────────
-
 def run():
     ensure_csv()
     log("=" * 60)
     log(f"Scheduler started  |  watchlist: {', '.join(WATCHLIST)}")
     log("=" * 60)
 
-    # ── Guard: not a trading day ──────────────────────────────────────────────
+    # Guard: not a trading day
     if not is_trading_day():
         n   = now_npt()
         msg = "holiday" if n.strftime("%Y-%m-%d") in NEPALI_HOLIDAYS else "weekend"
         log(f"Today is a {msg}. Nothing to do. Exiting.")
         sys.exit(0)
 
-    # ── Guard: wait until market opens ───────────────────────────────────────
+    # Guard: wait until market opens
     if market_status() == "before":
         n = now_npt()
         open_time = n.replace(hour=MARKET_OPEN[0], minute=MARKET_OPEN[1],
@@ -212,12 +201,12 @@ def run():
                 f"until 11:00 AM NPT …")
             time.sleep(wait_s)
 
-    # ── Guard: already closed ─────────────────────────────────────────────────
+    # Guard: already closed 
     if market_status() == "after":
         log("Market already closed for today. Exiting.")
         sys.exit(0)
 
-    # ── Main poll loop ────────────────────────────────────────────────────────
+    #  Main poll loop 
     halt_until  = None
     day_closed  = False
     poll        = 0
@@ -239,7 +228,7 @@ def run():
             log("  Circuit breaker lifted. Resuming normal polling.")
             halt_until = None
 
-        # ── Fetch all symbols ─────────────────────────────────────────────────
+        # Fetch all symbols 
         poll += 1
         log(f"Poll #{poll}  |  fetching {len(WATCHLIST)} symbols …")
         batch = []
@@ -255,7 +244,7 @@ def run():
         append_rows(batch)
         log(f"  → {len(batch)} rows appended to {CSV_PATH}")
 
-        # ── Check circuit breaker ─────────────────────────────────────────────
+        # Check circuit breaker
         idx_pct = fetch_nepse_pct()
         if idx_pct is not None:
             for threshold, halt_min, closes_day in CIRCUIT_BREAKERS:
@@ -274,7 +263,7 @@ def run():
         if day_closed:
             break
 
-        # ── Sleep until next poll (wake early if market closes at 15:00) ───────
+        # Sleep until next poll (wake early if market closes at 15:00) 
         interval = random.randint(POLL_MIN, POLL_MAX)
         log(f"  Next poll in {interval//60}m {interval%60}s")
         for _ in range(interval):

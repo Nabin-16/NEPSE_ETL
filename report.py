@@ -1,12 +1,7 @@
 """
 NEPSE Daily Report Generator
-==============================
-Reads today's live_feed.csv, transforms the data,
-plots a closing-price line graph per company,
-builds a single PDF with all companies, and
-emails the PDF to a specified address.
 
-Called automatically by Task Scheduler at 3:50 PM daily.
+Called automatically by Task Scheduler at 3:50 PM daily or adjust time as needed in .bat file.
 
 Usage:
     python report.py
@@ -22,18 +17,16 @@ from email import encoders
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-# ── Email Configuration ───────────────────────────────────────────────────────
-# 1. Go to myaccount.google.com → Security → 2-Step Verification (enable it)
-# 2. Then → App Passwords → create one → paste the 16-char password below
-EMAIL_SENDER   = "080bct046@ioepc.edu.np"        # Gmail address you send FROM
-EMAIL_PASSWORD = "owzt ccjz kwqk rgwx"         # 16-char Gmail App Password
-EMAIL_RECEIVER = "080bct035@ioepc.edu.np"   # address to send the PDF to
+# Email Configuration 
+EMAIL_SENDER   = "080bct046@ioepc.edu.np" 
+EMAIL_PASSWORD = "XXXX XXXX XXXX XXXX" # 16 char Gmail App Password
+EMAIL_RECEIVER = "080bct035@ioepc.edu.np" 
 SMTP_HOST      = "smtp.gmail.com"
 SMTP_PORT      = 587
 
 import pandas as pd
 import matplotlib
-matplotlib.use("Agg")           # headless — no display needed
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.ticker import MaxNLocator
@@ -48,14 +41,14 @@ from reportlab.platypus import (
     Image as RLImage, HRFlowable, PageBreak, Table, TableStyle
 )
 
-# ── Paths ─────────────────────────────────────────────────────────────────────
+# Paths
 NPT      = ZoneInfo("Asia/Kathmandu")
 BASE_DIR = r"C:\Codes\final_etl"
 DATA_DIR = os.path.join(BASE_DIR, "nepse_data")
 CSV_PATH = os.path.join(DATA_DIR, "live_feed.csv")
 OUT_DIR  = os.path.join(BASE_DIR, "nepse_data", "reports")
 
-# ── Colours ───────────────────────────────────────────────────────────────────
+# Colours
 BRAND_DARK  = colors.HexColor("#0d1b2a")
 BRAND_BLUE  = colors.HexColor("#1565c0")
 BRAND_LIGHT = colors.HexColor("#e3f2fd")
@@ -79,12 +72,9 @@ def log(msg: str):
         f.write(f"[{ts}]  {msg}\n")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 1. EXTRACT & TRANSFORM
-# ─────────────────────────────────────────────────────────────────────────────
-
+# tranformation and summary functions
 def load_today(csv_path: str) -> pd.DataFrame | None:
-    """Load and clean today's rows from live_feed.csv."""
+    
     if not os.path.exists(csv_path):
         log(f"CSV not found: {csv_path}")
         return None
@@ -96,13 +86,18 @@ def load_today(csv_path: str) -> pd.DataFrame | None:
         return None
 
     # Parse timestamps safely; skip malformed rows instead of crashing report generation
+    
     df["fetched_at"] = pd.to_datetime(df["fetched_at"], errors="coerce")
+    
     bad_ts = int(df["fetched_at"].isna().sum())
+    
     if bad_ts:
+        
         log(f"Dropped {bad_ts} row(s) with invalid fetched_at timestamps.")
         df = df[df["fetched_at"].notna()].copy()
 
     # Filter to today (NPT)
+
     today_str = datetime.now(NPT).strftime("%Y-%m-%d")
     df = df[df["fetched_at"].dt.strftime("%Y-%m-%d") == today_str].copy()
 
@@ -111,6 +106,7 @@ def load_today(csv_path: str) -> pd.DataFrame | None:
         return None
 
     # Cast numerics, drop rows with no close
+
     for col in ["open", "high", "low", "close", "volume", "prev_close", "pct_change"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
@@ -123,7 +119,7 @@ def load_today(csv_path: str) -> pd.DataFrame | None:
 
 
 def compute_summary(sym_df: pd.DataFrame) -> dict:
-    """Compute per-symbol stats."""
+    
     first_close  = sym_df.iloc[0]["close"]
     last_close   = sym_df.iloc[-1]["close"]
     change       = round(last_close - first_close, 2)
@@ -194,13 +190,11 @@ def compute_summary(sym_df: pd.DataFrame) -> dict:
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 2. PLOT
-# ─────────────────────────────────────────────────────────────────────────────
+# plotting function
 
 def plot_symbol(sym: str, sym_df: pd.DataFrame, summary: dict,
                 out_path: str):
-    """Clean, simple line chart — white background, no fancy styling."""
+    
     fig, ax = plt.subplots(figsize=(9, 3.2))
 
     x = sym_df["fetched_at"].values
@@ -211,10 +205,8 @@ def plot_symbol(sym: str, sym_df: pd.DataFrame, summary: dict,
     ax.plot(x, y, color=color, linewidth=1.5, marker="o",
             markersize=4, markerfacecolor=color)
 
-    # Light shading under line
     ax.fill_between(x, y, min(y) * 0.999, alpha=0.08, color=color)
 
-    # Label first and last value
     ax.annotate(f"{y[0]:.1f}", xy=(x[0], y[0]),
                 xytext=(6, 6), textcoords="offset points",
                 fontsize=8, color="#555555")
@@ -243,12 +235,8 @@ def plot_symbol(sym: str, sym_df: pd.DataFrame, summary: dict,
     log(f"  Chart saved -> {out_path}")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 3. BUILD PDF
-# ─────────────────────────────────────────────────────────────────────────────
-
 def build_pdf(df: pd.DataFrame, chart_dir: str, pdf_path: str):
-    """Assemble the full multi-company PDF report."""
+    
     doc = SimpleDocTemplate(
         pdf_path,
         pagesize=A4,
@@ -259,7 +247,6 @@ def build_pdf(df: pd.DataFrame, chart_dir: str, pdf_path: str):
     styles = getSampleStyleSheet()
     story  = []
 
-    # ── Shared styles ─────────────────────────────────────────────────────────
     title_style = ParagraphStyle(
         "ReportTitle",
         parent=styles["Title"],
@@ -293,7 +280,6 @@ def build_pdf(df: pd.DataFrame, chart_dir: str, pdf_path: str):
     today_str    = datetime.now(NPT).strftime("%A, %d %B %Y")
     generated_at = datetime.now(NPT).strftime("%H:%M NPT")
 
-    # ── Cover header ──────────────────────────────────────────────────────────
     story.append(Spacer(1, 0.4*cm))
     story.append(Paragraph("NEPSE Daily Market Report", title_style))
     story.append(Paragraph(f"{today_str}  ·  Generated {generated_at}", sub_style))
@@ -357,7 +343,7 @@ def build_pdf(df: pd.DataFrame, chart_dir: str, pdf_path: str):
 
         story.append(Spacer(1, 0.3*cm))
 
-        # ── Day summary ───────────────────────────────────────────────────────
+        # Day summary 
         direction  = "gained" if summary["change"] >= 0 else "lost"
         day_summary = (
             f"{sym} opened at NPR {summary['first_close']:.2f} and closed at "
@@ -371,7 +357,7 @@ def build_pdf(df: pd.DataFrame, chart_dir: str, pdf_path: str):
         story.append(Paragraph(day_summary, styles["Normal"]))
         story.append(Spacer(1, 0.2*cm))
 
-        # ── Volume analysis ───────────────────────────────────────────────────
+        # Volume analysis
         vol_text = (
             f"Total volume recorded was {summary['volume']:,} shares. "
             f"{summary['vol_comment']}"
@@ -380,15 +366,15 @@ def build_pdf(df: pd.DataFrame, chart_dir: str, pdf_path: str):
         story.append(Paragraph(vol_text, styles["Normal"]))
         story.append(Spacer(1, 0.2*cm))
 
-        # ── Circuit breaker status ────────────────────────────────────────────
+        # Circuit breaker status 
         story.append(Paragraph("<b>Circuit Breaker</b>", styles["Heading2"]))
         story.append(Paragraph(summary["cb_status"], styles["Normal"]))
 
-        # Page break between companies (not after the last one)
+        # Page break between companies
         if i < len(symbols) - 1:
             story.append(PageBreak())
 
-    # ── Footer note ───────────────────────────────────────────────────────────
+    # Footer note
     story.append(Spacer(1, 0.8*cm))
     story.append(HRFlowable(width="100%", thickness=0.5, color=GREY))
     story.append(Spacer(1, 0.2*cm))
@@ -404,26 +390,19 @@ def build_pdf(df: pd.DataFrame, chart_dir: str, pdf_path: str):
     log(f"PDF saved → {pdf_path}")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 4. EMAIL
-# ─────────────────────────────────────────────────────────────────────────────
-
 def send_email(pdf_path: str):
-    """
-    Send the PDF report as an email attachment via Gmail SMTP.
-    All steps and errors are written to scheduler.log.
-    """
+   
     today_str    = datetime.now(NPT).strftime("%A, %d %B %Y")
     generated_at = datetime.now(NPT).strftime("%H:%M NPT")
     subject      = f"NEPSE Daily Report — {today_str}"
 
-    # ── Check placeholders ────────────────────────────────────────────────────
+    # Check placeholders
     if "your_email" in EMAIL_SENDER or "xxxx" in EMAIL_PASSWORD:
         log("EMAIL SKIPPED — placeholders not filled in.")
         log("  Edit EMAIL_SENDER, EMAIL_PASSWORD, EMAIL_RECEIVER in report.py")
         return
 
-    # ── Build email ───────────────────────────────────────────────────────────
+    # Build email
     log(f"  Preparing email to {EMAIL_RECEIVER} ...")
     msg = MIMEMultipart()
     msg["From"]    = EMAIL_SENDER
@@ -440,7 +419,7 @@ def send_email(pdf_path: str):
     )
     msg.attach(MIMEText(body, "plain"))
 
-    # ── Attach PDF ────────────────────────────────────────────────────────────
+    # Attach PDF
     log(f"  Attaching PDF: {os.path.basename(pdf_path)} ...")
     try:
         with open(pdf_path, "rb") as f:
@@ -457,7 +436,7 @@ def send_email(pdf_path: str):
         log(f"  FAILED to attach PDF: {e}")
         return
 
-    # ── Send via Gmail SMTP ───────────────────────────────────────────────────
+    # Send via Gmail SMTP 
     log(f"  Connecting to {SMTP_HOST}:{SMTP_PORT} ...")
     try:
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
@@ -478,11 +457,6 @@ def send_email(pdf_path: str):
     except Exception as e:
         log(f"  EMAIL FAILED (unexpected): {e}")
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# MAIN
-# ─────────────────────────────────────────────────────────────────────────────
-
 def run():
     log("=" * 60)
     log("Report generator started")
@@ -491,39 +465,37 @@ def run():
     log(f"  OUT_DIR  : {OUT_DIR}")
     log("=" * 60)
 
-    # ── Step 0: Create output dirs ────────────────────────────────────────────
     try:
         os.makedirs(OUT_DIR, exist_ok=True)
-        log("STEP 0 OK — output dirs created")
+        log("STEP 0 OK, output dirs created")
     except Exception as e:
-        log(f"STEP 0 FAILED — could not create output dirs: {e}")
+        log(f"STEP 0 FAILED, could not create output dirs: {e}")
         sys.exit(1)
 
-    # ── Step 1: Load & transform CSV ─────────────────────────────────────────
-    log("STEP 1 — loading and transforming CSV ...")
+
+    log("STEP 1: loading and transforming CSV ...")
     try:
         df = load_today(CSV_PATH)
     except Exception as e:
-        log(f"STEP 1 FAILED — unexpected error in load_today: {e}")
+        log(f"STEP 1 FAILED, unexpected error in load_today: {e}")
         import traceback
         log(traceback.format_exc())
         sys.exit(1)
 
     if df is None:
-        log("STEP 1 — no data for today. Nothing to report. Exiting.")
+        log("STEP 1: no data for today. Nothing to report. Exiting.")
         log(f"  Check that fetcher.py ran today and {CSV_PATH} exists.")
         sys.exit(0)
 
-    log(f"STEP 1 OK — {len(df)} rows, {df['symbol'].nunique()} symbol(s): "
+    log(f"STEP 1 OK : {len(df)} rows, {df['symbol'].nunique()} symbol(s): "
         f"{list(df['symbol'].unique())}")
 
-    # ── Step 2: Generate charts ───────────────────────────────────────────────
-    log("STEP 2 — generating charts ...")
+    log("STEP 2: generating charts ...")
     chart_dir = os.path.join(OUT_DIR, "charts")
     try:
         os.makedirs(chart_dir, exist_ok=True)
     except Exception as e:
-        log(f"STEP 2 FAILED — could not create chart dir: {e}")
+        log(f"STEP 2 FAILED, could not create chart dir: {e}")
         sys.exit(1)
 
     for sym in df["symbol"].unique():
@@ -536,15 +508,14 @@ def run():
                 f"polls={summary['polls']}")
             chart_p = os.path.join(chart_dir, f"{sym}_chart.png")
             plot_symbol(sym, sym_df, summary, chart_p)
-            log(f"  STEP 2 OK — {sym} chart saved")
+            log(f"  STEP 2 OK : {sym} chart saved")
         except Exception as e:
             log(f"  STEP 2 FAILED for {sym}: {e}")
             import traceback
             log(traceback.format_exc())
-            # continue with other symbols instead of crashing
-
-    # ── Step 3: Build PDF ─────────────────────────────────────────────────────
-    log("STEP 3 — building PDF ...")
+           
+  
+    log("STEP 3: building PDF ...")
     today_str = datetime.now(NPT).strftime("%Y-%m-%d")
     pdf_name  = f"NEPSE_Report_{today_str}.pdf"
     pdf_path  = os.path.join(OUT_DIR, pdf_name)
@@ -558,13 +529,13 @@ def run():
         log(traceback.format_exc())
         sys.exit(1)
 
-    # ── Step 4: Send email ────────────────────────────────────────────────────
-    log("STEP 4 — sending email ...")
+ 
+    log("STEP 4: sending email ...")
     try:
         send_email(pdf_path)
-        log("STEP 4 OK — email step complete")
+        log("STEP 4 OK, email step complete")
     except Exception as e:
-        log(f"STEP 4 FAILED — email error: {e}")
+        log(f"STEP 4 FAILED, email error: {e}")
         import traceback
         log(traceback.format_exc())
 
@@ -578,7 +549,6 @@ if __name__ == "__main__":
         run()
     except Exception as e:
         import traceback
-        # Last-resort catch — write to log before dying
         NPT_      = ZoneInfo("Asia/Kathmandu")
         ts        = datetime.now(NPT_).strftime("%Y-%m-%d %H:%M:%S")
         log_path  = os.path.join(BASE_DIR, "nepse_data", "scheduler.log")
