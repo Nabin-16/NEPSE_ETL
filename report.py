@@ -4,10 +4,9 @@ NEPSE Daily Report Generator
 Reads today's live_feed.csv, transforms the data,
 plots a closing-price line graph per company,
 builds a single PDF with all companies, and
-shows a Windows toast notification at completion.
+emails the PDF to a specified address.
 
-Called automatically by fetcher.py after 3:00 PM,
-OR scheduled via Task Scheduler at 7:00 PM as a fallback.
+Called automatically by Task Scheduler at 3:50 PM daily.
 
 Usage:
     python report.py
@@ -15,9 +14,22 @@ Usage:
 
 import os
 import sys
-import subprocess
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+# ── Email Configuration ───────────────────────────────────────────────────────
+# 1. Go to myaccount.google.com → Security → 2-Step Verification (enable it)
+# 2. Then → App Passwords → create one → paste the 16-char password below
+EMAIL_SENDER   = "080bct046@ioepc.edu.np"        # Gmail address you send FROM
+EMAIL_PASSWORD = "owzt ccjz kwqk rgwx"         # 16-char Gmail App Password
+EMAIL_RECEIVER = "080bct035@ioepc.edu.np"   # address to send the PDF to
+SMTP_HOST      = "smtp.gmail.com"
+SMTP_PORT      = 587
 
 import pandas as pd
 import matplotlib
@@ -38,7 +50,7 @@ from reportlab.platypus import (
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 NPT      = ZoneInfo("Asia/Kathmandu")
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = r"C:\Codes\final_etl"
 DATA_DIR = os.path.join(BASE_DIR, "nepse_data")
 CSV_PATH = os.path.join(DATA_DIR, "live_feed.csv")
 OUT_DIR  = os.path.join(BASE_DIR, "nepse_data", "reports")
@@ -51,10 +63,11 @@ GREEN       = colors.HexColor("#2e7d32")
 RED         = colors.HexColor("#c62828")
 GREY        = colors.HexColor("#607d8b")
 
-PLOT_BG     = "#0d1b2a"
-PLOT_LINE   = "#29b6f6"
-PLOT_FILL   = "#1565c0"
-PLOT_GRID   = "#1e3a5f"
+CIRCUIT_BREAKERS = [
+    (10.0,  0,   True),
+    ( 6.0, 40,  False),
+    ( 4.0, 20,  False),
+]
 
 
 def log(msg: str):
@@ -82,8 +95,12 @@ def load_today(csv_path: str) -> pd.DataFrame | None:
         log("CSV is empty.")
         return None
 
-    # Parse timestamps
-    df["fetched_at"] = pd.to_datetime(df["fetched_at"])
+    # Parse timestamps safely; skip malformed rows instead of crashing report generation
+    df["fetched_at"] = pd.to_datetime(df["fetched_at"], errors="coerce")
+    bad_ts = int(df["fetched_at"].isna().sum())
+    if bad_ts:
+        log(f"Dropped {bad_ts} row(s) with invalid fetched_at timestamps.")
+        df = df[df["fetched_at"].notna()].copy()
 
     # Filter to today (NPT)
     today_str = datetime.now(NPT).strftime("%Y-%m-%d")
@@ -106,24 +123,74 @@ def load_today(csv_path: str) -> pd.DataFrame | None:
 
 
 def compute_summary(sym_df: pd.DataFrame) -> dict:
-    """Compute per-symbol stats: first close, last close, total change."""
-    first_close = sym_df.iloc[0]["close"]
-    last_close  = sym_df.iloc[-1]["close"]
-    change      = round(last_close - first_close, 2)
-    change_pct  = round((change / first_close) * 100, 2) if first_close else 0
-    high        = sym_df["high"].max()
-    low         = sym_df["low"].min()
-    total_vol   = sym_df["volume"].iloc[-1]   # last snapshot = cumulative volume
+    """Compute per-symbol stats."""
+    first_close  = sym_df.iloc[0]["close"]
+    last_close   = sym_df.iloc[-1]["close"]
+    change       = round(last_close - first_close, 2)
+    change_pct   = round((change / first_close) * 100, 2) if first_close else 0
+    high         = sym_df["high"].max()
+    low          = sym_df["low"].min()
+    total_vol    = sym_df["volume"].iloc[-1]
+    first_vol    = sym_df["volume"].iloc[0]
+
+    # Find time of day high and low close
+    high_time = sym_df.loc[sym_df["close"].idxmax(), "fetched_at"].strftime("%H:%M")
+    low_time  = sym_df.loc[sym_df["close"].idxmin(), "fetched_at"].strftime("%H:%M")
+
+    # Price movement description
+    closes = sym_df["close"].values
+    if len(closes) >= 3:
+        first_half = closes[:len(closes)//2]
+        second_half = closes[len(closes)//2:]
+        if first_half[-1] > first_half[0] and second_half[-1] < second_half[0]:
+            trend = "rose in the first half of the session then pulled back toward close"
+        elif first_half[-1] < first_half[0] and second_half[-1] > second_half[0]:
+            trend = "fell early in the session then recovered toward close"
+        elif closes[-1] > closes[0]:
+            trend = "moved gradually higher through the session"
+        elif closes[-1] < closes[0]:
+            trend = "drifted lower through the session"
+        else:
+            trend = "traded flat through the session"
+    else:
+        trend = "had limited trading data today"
+
+    # Volume analysis
+    vol_added = total_vol - first_vol
+    if total_vol > 100000:
+        vol_comment = "Volume was high today, indicating strong trader interest."
+    elif total_vol > 50000:
+        vol_comment = "Volume was moderate today."
+    else:
+        vol_comment = "Volume was light today, suggesting limited activity."
+
+    # Circuit breaker check
+    pct_change = sym_df.iloc[-1]["pct_change"] if "pct_change" in sym_df.columns else None
+    cb_status  = "No circuit breaker was triggered."
+    if pct_change and not pd.isna(pct_change):
+        pct = float(pct_change)
+        if abs(pct) >= 10:
+            cb_status = f"The 10% circuit breaker was triggered. Market closed early."
+        elif abs(pct) >= 6:
+            cb_status = f"A 6% circuit breaker halt was triggered (40-minute halt)."
+        elif abs(pct) >= 4:
+            cb_status = f"A 4% circuit breaker halt was triggered (20-minute halt)."
 
     return {
-        "first_close": first_close,
-        "last_close":  last_close,
-        "change":      change,
-        "change_pct":  change_pct,
-        "high":        high,
-        "low":         low,
-        "volume":      total_vol,
-        "polls":       len(sym_df),
+        "first_close":  first_close,
+        "last_close":   last_close,
+        "change":       change,
+        "change_pct":   change_pct,
+        "high":         high,
+        "low":          low,
+        "volume":       total_vol,
+        "vol_added":    vol_added,
+        "polls":        len(sym_df),
+        "high_time":    high_time,
+        "low_time":     low_time,
+        "trend":        trend,
+        "vol_comment":  vol_comment,
+        "cb_status":    cb_status,
     }
 
 
@@ -133,53 +200,47 @@ def compute_summary(sym_df: pd.DataFrame) -> dict:
 
 def plot_symbol(sym: str, sym_df: pd.DataFrame, summary: dict,
                 out_path: str):
-    """Render a dark-themed line chart and save as PNG."""
-    fig, ax = plt.subplots(figsize=(10, 3.8), facecolor=PLOT_BG)
-    ax.set_facecolor(PLOT_BG)
+    """Clean, simple line chart — white background, no fancy styling."""
+    fig, ax = plt.subplots(figsize=(9, 3.2))
 
     x = sym_df["fetched_at"].values
     y = sym_df["close"].values
 
-    ax.plot(x, y, color=PLOT_LINE, linewidth=2.2, zorder=3)
-    ax.fill_between(x, y, y.min() * 0.999,
-                    alpha=0.25, color=PLOT_FILL, zorder=2)
+    color = "#2e7d32" if summary["change"] >= 0 else "#c62828"
 
-    # Annotate first and last points
-    ax.annotate(f"{y[0]:.2f}",
-                xy=(x[0], y[0]), xytext=(8, 6), textcoords="offset points",
-                color="#90caf9", fontsize=8)
-    ax.annotate(f"{y[-1]:.2f}",
-                xy=(x[-1], y[-1]), xytext=(-45, 6), textcoords="offset points",
-                color=PLOT_LINE, fontsize=9, fontweight="bold")
+    ax.plot(x, y, color=color, linewidth=1.5, marker="o",
+            markersize=4, markerfacecolor=color)
 
-    # Grid & spines
-    ax.grid(True, color=PLOT_GRID, linewidth=0.6, linestyle="--", zorder=1)
-    for spine in ax.spines.values():
-        spine.set_edgecolor(PLOT_GRID)
+    # Light shading under line
+    ax.fill_between(x, y, min(y) * 0.999, alpha=0.08, color=color)
 
-    # Axes formatting
+    # Label first and last value
+    ax.annotate(f"{y[0]:.1f}", xy=(x[0], y[0]),
+                xytext=(6, 6), textcoords="offset points",
+                fontsize=8, color="#555555")
+    ax.annotate(f"{y[-1]:.1f}", xy=(x[-1], y[-1]),
+                xytext=(-38, 6), textcoords="offset points",
+                fontsize=8, fontweight="bold", color=color)
+
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
     ax.xaxis.set_major_locator(mdates.AutoDateLocator())
     ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
-    ax.tick_params(colors="#90caf9", labelsize=8)
-    plt.setp(ax.get_xticklabels(), rotation=0)
+    ax.tick_params(labelsize=8)
+    ax.grid(True, color="#eeeeee", linewidth=0.6)
 
-    change_sign = "▲" if summary["change"] >= 0 else "▼"
-    change_col  = "#66bb6a" if summary["change"] >= 0 else "#ef5350"
-    ax.set_title(
-        f"{sym}  ·  {change_sign} {summary['change']:+.2f}  "
-        f"({summary['change_pct']:+.2f}%)  ·  "
-        f"Vol {summary['volume']:,}",
-        color=change_col, fontsize=10, fontweight="bold", pad=8
-    )
-    ax.set_xlabel("Time (NPT)", color="#90caf9", fontsize=8)
-    ax.set_ylabel("Close (NPR)", color="#90caf9", fontsize=8)
+    for spine in ["top", "right"]:
+        ax.spines[spine].set_visible(False)
+    for spine in ["bottom", "left"]:
+        ax.spines[spine].set_color("#cccccc")
+
+    ax.set_xlabel("Time (NPT)", fontsize=8, color="#555555")
+    ax.set_ylabel("Close Price (NPR)", fontsize=8, color="#555555")
 
     plt.tight_layout()
-    fig.savefig(out_path, dpi=130, bbox_inches="tight",
-                facecolor=PLOT_BG, edgecolor="none")
+    fig.savefig(out_path, dpi=120, bbox_inches="tight",
+                facecolor="white", edgecolor="none")
     plt.close(fig)
-    log(f"  Chart saved → {out_path}")
+    log(f"  Chart saved -> {out_path}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -296,15 +357,32 @@ def build_pdf(df: pd.DataFrame, chart_dir: str, pdf_path: str):
 
         story.append(Spacer(1, 0.3*cm))
 
-        # Total change summary sentence
-        direction = "gained" if summary["change"] >= 0 else "lost"
-        summary_text = (
-            f"<b>{sym}</b> {direction} <b>NPR {abs(summary['change']):.2f}</b> "
-            f"({abs(summary['change_pct']):.2f}%) today, closing at "
-            f"<b>NPR {summary['last_close']:.2f}</b> from an opening of "
-            f"<b>NPR {summary['first_close']:.2f}</b>."
+        # ── Day summary ───────────────────────────────────────────────────────
+        direction  = "gained" if summary["change"] >= 0 else "lost"
+        day_summary = (
+            f"{sym} opened at NPR {summary['first_close']:.2f} and closed at "
+            f"NPR {summary['last_close']:.2f}, {direction} NPR {abs(summary['change']):.2f} "
+            f"({abs(summary['change_pct']):.2f}%) on the day. "
+            f"The stock {summary['trend']}. "
+            f"It reached its intraday high close of NPR {summary['high']:.2f} around {summary['high_time']} "
+            f"and its low of NPR {summary['low']:.2f} around {summary['low_time']}."
         )
-        story.append(Paragraph(summary_text, styles["Normal"]))
+        story.append(Paragraph("<b>Day Summary</b>", styles["Heading2"]))
+        story.append(Paragraph(day_summary, styles["Normal"]))
+        story.append(Spacer(1, 0.2*cm))
+
+        # ── Volume analysis ───────────────────────────────────────────────────
+        vol_text = (
+            f"Total volume recorded was {summary['volume']:,} shares. "
+            f"{summary['vol_comment']}"
+        )
+        story.append(Paragraph("<b>Volume</b>", styles["Heading2"]))
+        story.append(Paragraph(vol_text, styles["Normal"]))
+        story.append(Spacer(1, 0.2*cm))
+
+        # ── Circuit breaker status ────────────────────────────────────────────
+        story.append(Paragraph("<b>Circuit Breaker</b>", styles["Heading2"]))
+        story.append(Paragraph(summary["cb_status"], styles["Normal"]))
 
         # Page break between companies (not after the last one)
         if i < len(symbols) - 1:
@@ -327,84 +405,78 @@ def build_pdf(df: pd.DataFrame, chart_dir: str, pdf_path: str):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. WINDOWS TOAST NOTIFICATION
+# 4. EMAIL
 # ─────────────────────────────────────────────────────────────────────────────
 
-def show_notification(pdf_path: str):
+def send_email(pdf_path: str):
     """
-    Show a Windows notification. Tries three methods in order:
-      1. Windows 10/11 Toast via PowerShell (most visible)
-      2. VBScript msg-box popup (works even on older Windows / SYSTEM account)
-      3. Opens the PDF directly as a last resort
-    All errors are captured and written to scheduler.log.
+    Send the PDF report as an email attachment via Gmail SMTP.
+    All steps and errors are written to scheduler.log.
     """
-    title   = "NEPSE Daily Report Ready"
-    message = f"Today's market report has been generated.\n{pdf_path}"
+    today_str    = datetime.now(NPT).strftime("%A, %d %B %Y")
+    generated_at = datetime.now(NPT).strftime("%H:%M NPT")
+    subject      = f"NEPSE Daily Report — {today_str}"
 
-    # ── Method 1: Windows Toast (Win 10/11) ───────────────────────────────────
-    # Uses the Windows.UI.Notifications COM API — works without a tray icon.
-    toast_ps = f"""
-try {{
-    [Windows.UI.Notifications.ToastNotificationManager,Windows.UI.Notifications,ContentType=WindowsRuntime] | Out-Null
-    [Windows.Data.Xml.Dom.XmlDocument,Windows.Data.Xml.Dom,ContentType=WindowsRuntime] | Out-Null
-    $template = [Windows.UI.Notifications.ToastTemplateType]::ToastText02
-    $xml = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent($template)
-    $xml.GetElementsByTagName('text')[0].AppendChild($xml.CreateTextNode('{title}')) | Out-Null
-    $xml.GetElementsByTagName('text')[1].AppendChild($xml.CreateTextNode('Report saved. Click to open PDF.')) | Out-Null
-    $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
-    [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('NEPSE ETL').Show($toast)
-    Write-Output "TOAST_OK"
-}} catch {{
-    Write-Output "TOAST_FAIL: $_"
-}}
-"""
-    toast_ok = False
+    # ── Check placeholders ────────────────────────────────────────────────────
+    if "your_email" in EMAIL_SENDER or "xxxx" in EMAIL_PASSWORD:
+        log("EMAIL SKIPPED — placeholders not filled in.")
+        log("  Edit EMAIL_SENDER, EMAIL_PASSWORD, EMAIL_RECEIVER in report.py")
+        return
+
+    # ── Build email ───────────────────────────────────────────────────────────
+    log(f"  Preparing email to {EMAIL_RECEIVER} ...")
+    msg = MIMEMultipart()
+    msg["From"]    = EMAIL_SENDER
+    msg["To"]      = EMAIL_RECEIVER
+    msg["Subject"] = subject
+
+    body = (
+        f"Hi,\n\n"
+        f"Please find attached the NEPSE daily market report for {today_str}.\n"
+        f"Generated at {generated_at}.\n\n"
+        f"Report includes: price charts, OHLCV summary, and day change "
+        f"for all tracked symbols.\n\n"
+        f"— NEPSE ETL"
+    )
+    msg.attach(MIMEText(body, "plain"))
+
+    # ── Attach PDF ────────────────────────────────────────────────────────────
+    log(f"  Attaching PDF: {os.path.basename(pdf_path)} ...")
     try:
-        result = subprocess.run(
-            ["powershell", "-WindowStyle", "Hidden",
-             "-NonInteractive", "-Command", toast_ps],
-            capture_output=True, text=True, timeout=15
+        with open(pdf_path, "rb") as f:
+            part = MIMEBase("application", "octet-stream")
+            part.set_payload(f.read())
+        encoders.encode_base64(part)
+        part.add_header(
+            "Content-Disposition",
+            f"attachment; filename={os.path.basename(pdf_path)}"
         )
-        output = (result.stdout or "").strip()
-        errors = (result.stderr or "").strip()
-        log(f"  Toast stdout: {output}")
-        if errors:
-            log(f"  Toast stderr: {errors}")
-        if "TOAST_OK" in output:
-            toast_ok = True
-            log("Notification sent via Windows Toast.")
+        msg.attach(part)
+        log("  PDF attached successfully.")
     except Exception as e:
-        log(f"  Toast method exception: {e}")
+        log(f"  FAILED to attach PDF: {e}")
+        return
 
-    # ── Method 2: VBScript popup (fallback — always works) ────────────────────
-    if not toast_ok:
-        log("Falling back to VBScript popup ...")
-        vbs_content = (
-            f'Set objShell = CreateObject("WScript.Shell")\n'
-            f'objShell.Popup "{title} - {pdf_path}", 30, "{title}", 64\n'
-        )
-        vbs_path = os.path.join(DATA_DIR, "_notify.vbs")
-        try:
-            with open(vbs_path, "w") as f:
-                f.write(vbs_content)
-            result = subprocess.run(
-                ["cscript", "//Nologo", vbs_path],
-                capture_output=True, text=True, timeout=35
-            )
-            log(f"  VBScript stdout: {(result.stdout or '').strip()}")
-            if result.stderr:
-                log(f"  VBScript stderr: {result.stderr.strip()}")
-            log("Notification sent via VBScript popup.")
-        except Exception as e:
-            log(f"  VBScript method exception: {e}")
-
-    # ── Always: open the PDF in the default viewer ────────────────────────────
+    # ── Send via Gmail SMTP ───────────────────────────────────────────────────
+    log(f"  Connecting to {SMTP_HOST}:{SMTP_PORT} ...")
     try:
-        os.startfile(pdf_path)
-        log("PDF opened in default viewer.")
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
+            server.ehlo()
+            log("  EHLO OK")
+            server.starttls()
+            log("  STARTTLS OK")
+            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+            log(f"  Login OK as {EMAIL_SENDER}")
+            server.sendmail(EMAIL_SENDER, EMAIL_RECEIVER, msg.as_string())
+            log(f"  Email sent successfully to {EMAIL_RECEIVER}")
+    except smtplib.SMTPAuthenticationError as e:
+        log(f"  SMTP AUTH FAILED: {e}")
+        log("  → Check EMAIL_SENDER and EMAIL_PASSWORD in report.py")
+        log("  → Make sure you used an App Password, not your Gmail password")
+    except smtplib.SMTPException as e:
+        log(f"  SMTP ERROR: {e}")
     except Exception as e:
-        log(f"Could not open PDF automatically: {e}")
-        log(f"  → Open manually: {pdf_path}")
+        log(f"  EMAIL FAILED (unexpected): {e}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -414,38 +486,104 @@ try {{
 def run():
     log("=" * 60)
     log("Report generator started")
+    log(f"  BASE_DIR : {BASE_DIR}")
+    log(f"  CSV_PATH : {CSV_PATH}")
+    log(f"  OUT_DIR  : {OUT_DIR}")
     log("=" * 60)
 
-    os.makedirs(OUT_DIR, exist_ok=True)
+    # ── Step 0: Create output dirs ────────────────────────────────────────────
+    try:
+        os.makedirs(OUT_DIR, exist_ok=True)
+        log("STEP 0 OK — output dirs created")
+    except Exception as e:
+        log(f"STEP 0 FAILED — could not create output dirs: {e}")
+        sys.exit(1)
 
-    # 1. Load & transform
-    df = load_today(CSV_PATH)
+    # ── Step 1: Load & transform CSV ─────────────────────────────────────────
+    log("STEP 1 — loading and transforming CSV ...")
+    try:
+        df = load_today(CSV_PATH)
+    except Exception as e:
+        log(f"STEP 1 FAILED — unexpected error in load_today: {e}")
+        import traceback
+        log(traceback.format_exc())
+        sys.exit(1)
+
     if df is None:
-        log("Nothing to report today. Exiting.")
+        log("STEP 1 — no data for today. Nothing to report. Exiting.")
+        log(f"  Check that fetcher.py ran today and {CSV_PATH} exists.")
         sys.exit(0)
 
-    # 2. Generate charts (one PNG per symbol)
+    log(f"STEP 1 OK — {len(df)} rows, {df['symbol'].nunique()} symbol(s): "
+        f"{list(df['symbol'].unique())}")
+
+    # ── Step 2: Generate charts ───────────────────────────────────────────────
+    log("STEP 2 — generating charts ...")
     chart_dir = os.path.join(OUT_DIR, "charts")
-    os.makedirs(chart_dir, exist_ok=True)
+    try:
+        os.makedirs(chart_dir, exist_ok=True)
+    except Exception as e:
+        log(f"STEP 2 FAILED — could not create chart dir: {e}")
+        sys.exit(1)
 
     for sym in df["symbol"].unique():
-        sym_df  = df[df["symbol"] == sym].copy()
-        summary = compute_summary(sym_df)
-        chart_p = os.path.join(chart_dir, f"{sym}_chart.png")
-        plot_symbol(sym, sym_df, summary, chart_p)
+        log(f"  Plotting {sym} ...")
+        try:
+            sym_df  = df[df["symbol"] == sym].copy()
+            summary = compute_summary(sym_df)
+            log(f"    {sym} summary: open={summary['first_close']} "
+                f"close={summary['last_close']} change={summary['change']:+.2f} "
+                f"polls={summary['polls']}")
+            chart_p = os.path.join(chart_dir, f"{sym}_chart.png")
+            plot_symbol(sym, sym_df, summary, chart_p)
+            log(f"  STEP 2 OK — {sym} chart saved")
+        except Exception as e:
+            log(f"  STEP 2 FAILED for {sym}: {e}")
+            import traceback
+            log(traceback.format_exc())
+            # continue with other symbols instead of crashing
 
-    # 3. Build PDF
+    # ── Step 3: Build PDF ─────────────────────────────────────────────────────
+    log("STEP 3 — building PDF ...")
     today_str = datetime.now(NPT).strftime("%Y-%m-%d")
     pdf_name  = f"NEPSE_Report_{today_str}.pdf"
     pdf_path  = os.path.join(OUT_DIR, pdf_name)
-    build_pdf(df, chart_dir, pdf_path)
+    log(f"  PDF path: {pdf_path}")
+    try:
+        build_pdf(df, chart_dir, pdf_path)
+        log(f"STEP 3 OK — PDF built: {pdf_path}")
+    except Exception as e:
+        log(f"STEP 3 FAILED — PDF build error: {e}")
+        import traceback
+        log(traceback.format_exc())
+        sys.exit(1)
 
-    # 4. Notify user
-    show_notification(pdf_path)
+    # ── Step 4: Send email ────────────────────────────────────────────────────
+    log("STEP 4 — sending email ...")
+    try:
+        send_email(pdf_path)
+        log("STEP 4 OK — email step complete")
+    except Exception as e:
+        log(f"STEP 4 FAILED — email error: {e}")
+        import traceback
+        log(traceback.format_exc())
 
+    log("=" * 60)
     log("Report generation complete.")
     log("=" * 60)
 
 
 if __name__ == "__main__":
-    run()
+    try:
+        run()
+    except Exception as e:
+        import traceback
+        # Last-resort catch — write to log before dying
+        NPT_      = ZoneInfo("Asia/Kathmandu")
+        ts        = datetime.now(NPT_).strftime("%Y-%m-%d %H:%M:%S")
+        log_path  = os.path.join(BASE_DIR, "nepse_data", "scheduler.log")
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"[{ts}]  FATAL CRASH in report.py:\n")
+            f.write(traceback.format_exc())
+        raise

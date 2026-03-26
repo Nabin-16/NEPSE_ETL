@@ -1,8 +1,14 @@
 """
+NEPSE Background Scheduler
+===========================
+Runs silently in the background. Fetches watchlist data every 3-5 minutes
+during market hours (11:00-15:00 NPT, Sun-Thu) and appends all records
+to a single CSV file: nepse_data/live_feed.csv
 
 Setup (one-time):
-    1. Run setup_task.bat as Administrator to register Windows Task Scheduler
-    2. It will auto-start every day at 10:50 AM NPT
+    1. Edit WATCHLIST below with your symbols
+    2. Run setup_task.bat as Administrator to register Windows Task Scheduler
+    3. That's it — it will auto-start every day at 10:50 AM NPT
 
 Manual run:
     python nepse_scheduler.py
@@ -29,7 +35,7 @@ POLL_MIN     = 180   # 3 min
 POLL_MAX     = 300   # 5 min
 
 # CSV lives next to this script
-BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR  = r"C:\Codes\final_etl"
 DATA_DIR  = os.path.join(BASE_DIR, "nepse_data")
 CSV_PATH  = os.path.join(DATA_DIR, "live_feed.csv")
 LOG_PATH  = os.path.join(DATA_DIR, "scheduler.log")
@@ -278,9 +284,21 @@ def run():
             time.sleep(1)
 
     log("Scheduler exiting.")
+    _launch_report()
 
 
-  
-        
+def _launch_report():
+    """Kick off report.py in the same directory after market close."""
+    report_script = os.path.join(BASE_DIR, "report.py")
+    if not os.path.exists(report_script):
+        log(f"report.py not found at {report_script} — skipping report.")
+        return
+    log("Launching report generator …")
+    try:
+        subprocess.run([sys.executable, report_script], check=True)
+    except Exception as e:
+        log(f"Report generator failed: {e}")
+
+
 if __name__ == "__main__":
     run()
